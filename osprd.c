@@ -111,7 +111,8 @@ static void osprd_process_request(osprd_info_t *d, struct request *req)
 		end_request(req, 0);
 		return;
 	}
-
+	
+	//rq_data_dir( req);
 	// EXERCISE: Perform the read or write request by copying data between
 	// our data array and the request's buffer.
 	// Hint: The 'struct request' argument tells you what kind of request
@@ -120,6 +121,34 @@ static void osprd_process_request(osprd_info_t *d, struct request *req)
 	// Consider the 'req->sector', 'req->current_nr_sectors', and
 	// 'req->buffer' members, and the rq_data_dir() function.
 
+	//copy data from request's buffer to *d	
+	
+	if(req->sector+req->current_nr_sectors > nsectors)
+	{
+		end_request(req,0);
+
+	}
+	
+	unsigned int request_type = rq_data_dir(req);
+	if(request_type == READ)
+	{
+		//read from d->data to req->buffer
+		//req->sector returns a pointer to the next sector to submit from req_sector
+		//	
+		memcpy(req->buffer, d->data+req->sector*SECTOR_SIZE, req->current_nr_sectors*SECTOR_SIZE);
+	} 
+	else if(request_type==WRITE)
+	{
+		//write from req->buffer to d->data
+		//because req->sector is the next sector we need to write to, we multiply by
+		//SECTOR_SIZE
+		memcpy(d->data+req->sector*SECTOR_SIZE, req->buffer, req->current_nr_sectors*SECTOR_SIZE);
+	}
+	else
+	{
+		end_request(req,0);
+	}
+	
 	// Your code here.
 	eprintk("Should process request...\n");
 
