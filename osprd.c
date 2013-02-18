@@ -129,19 +129,19 @@ static void osprd_process_request(osprd_info_t *d, struct request *req)
 	// 'req->buffer' members, and the rq_data_dir() function.
 
 	//copy data from request's buffer to *d	
-	
+    
+    // Error check
 	if(req->sector+req->current_nr_sectors > nsectors)
 	{
 		end_request(req,0);
-
 	}
 	
+    // Get request
 	unsigned int request_type = rq_data_dir(req);
 	if(request_type == READ)
 	{
 		//read from d->data to req->buffer
 		//req->sector returns a pointer to the next sector to submit from req_sector
-		//	
 		memcpy(req->buffer, d->data+req->sector*SECTOR_SIZE, req->current_nr_sectors*SECTOR_SIZE);
 	} 
 	else if(request_type==WRITE)
@@ -189,21 +189,30 @@ static int osprd_close_last(struct inode *inode, struct file *filp)
 
 		// Your code here.
 
+        // Check for lock flag
 		if(filp->f_flags & F_OSPRD_LOCKED)
 		{
 			osp_spin_lock(&d->mutex);
+            // Start critical section
+
+            // Release lock
 			filp->f_flags &= ~F_OSPRD_LOCKED;
+
+            // Decrement write/read
 			if(filp_writable)
 				d->write_number--;
 			else
 				d->read_number--;
+
+            // End critical section
 			osp_spin_unlock(&d->mutex);
+
 			wake_up_all(&d->blockq);
 		}
 		
 		
 		// This line avoids compiler warnings; you may remove it.
-		(void) filp_writable, (void) d;
+		//(void) filp_writable, (void) d;
 
 	}
 
@@ -247,7 +256,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 	int filp_writable = (filp->f_mode & FMODE_WRITE) != 0;
 
 	// This line avoids compiler warnings; you may remove it.
-	(void) filp_writable, (void) d;
+	//(void) filp_writable, (void) d;
 
 	// Set 'r' to the ioctl's return value: 0 on success, negative on error
 
@@ -287,21 +296,32 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		// Then, block at least until 'd->ticket_tail == local_ticket'.
 		// (Some of these operations are in a critical section and must
 		// be protected by a spinlock; which ones?)
-
 		
 		int current_ticket = 0;
+
 		osp_spin_lock(&d->mutex);
+        // Start critical section
+
+        // Increment service lock
 		current_ticket = d->ticket_head++;
+
+        // End critical section
 		osp_spin_unlock(&d->mutex);
 
+        // Get current ticket
 		d->pid_queue[current_ticket%MAX_MEM_SIZE] = current->pid;
 
-
 		osp_spin_lock(&d->mutex);
+        // Start critical section
+        
+        // Keep track of read/write locks
 		int rw_number = d->read_number+d->write_number;
 		int index = (d->ticket_tail-1)%MAX_MEM_SIZE;
+        
+        // End critical section
 		osp_spin_unlock(&d->mutex);
 
+        // Deadlock check
 		while(rw_number > 0)
 		{
 			if(d->pid_queue[index] == current->pid)
@@ -312,26 +332,41 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			rw_number--;	
 		}
 
+        // Attempt to write lock ramdisk
 		if(filp_writable)
 		{
+            
 			wait_event_interruptible(d->blockq, d->write_number==0 && d->read_number==0 && d->ticket_tail >= current_ticket);
+
 			osp_spin_lock(&d->mutex);
+            // Start critical section
+            
 			d->write_number++;
 			d->ticket_tail++;
+            // Mark lock
 			filp->f_flags |= F_OSPRD_LOCKED;
+
+            // End critical section
 			osp_spin_unlock(&d->mutex);
 		}
+        // Attempt to read lock ramdisk
 		else
 		{
 			wait_event_interruptible(d->blockq, d->write_number==0 && d->ticket_tail >= current_ticket);
+
 			osp_spin_lock(&d->mutex);
+            // Start critical section
+
 			d->ticket_tail++;
 			d->read_number++;
+            // Mark lock
 			filp->f_flags |= F_OSPRD_LOCKED;
+
+            // End critical section
 			osp_spin_unlock(&d->mutex);
 		}
 
- 		r=0;
+ 		r = 0;
 		// Your code here (instead of the next two lines).
 		
 		//eprintk("Attempting to acquire\n");
@@ -349,12 +384,14 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		if(filp_writable)
 		{
 			osp_spin_lock(&d->mutex);
+            // Write lock 
 			if(ready_to_write(d))
 			{
 				d->write_number++;
 				filp->f_flags |= F_OSPRD_LOCKED;
 				osp_spin_lock(&d->mutex);
 			}
+            // Acquire rejected
 			else
 			{
 				osp_spin_unlock(&d->mutex);
@@ -364,6 +401,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		else
 		{
 			osp_spin_lock(&d->mutex);
+            // Read lock
 			if(ready_to_read(d))
 			{
 				d->read_number++;	
@@ -371,6 +409,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 				osp_spin_unlock(&d->mutex);
 
 			}
+            // Acquire rejected
 			else
 			{
 				osp_spin_unlock(&d->mutex);
@@ -379,8 +418,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			}
 
 		}
-		r=0;
-
+		r = 0;
 
 		// Your code here (instead of the next two lines).
 		//eprintk("Attempting to try acquire\n");
@@ -395,16 +433,22 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		// the wait queue, perform any additional accounting steps
 		// you need, and return 0.
 
-
+        // File didn't lock ramdisk
 		if(filp->f_flags != F_OSPRD_LOCKED)
 			return -EINVAL;
 		
 		osp_spin_lock(&d->mutex);
+        // Start critical section
+
+        // Create indexing vars
 		int temp = 0;
 		int rw_number = d->read_number + d->write_number;
 		int index = (d->ticket_tail -1)%MAX_MEM_SIZE;
+
+        // End critical section
 		osp_spin_unlock(&d->mutex);
-		while(rw_number >0)
+
+		while(rw_number > 0)
 		{
 			if(d->pid_queue[index] == current->pid)
 			{
@@ -413,7 +457,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			}
 			index--;
 			if(index < 0)
-				index = MAX_MEM_SIZE -1;
+				index = MAX_MEM_SIZE - 1;
 			rw_number--;
 		}
 		
@@ -421,7 +465,12 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			return -EINVAL;
 
 		osp_spin_lock(&d->mutex);
+        // Start critcal section
+
+        // Clear lock
 		filp->f_flags = 0;
+
+        // Decrement rw numbers
 		if(filp_writable)
 		{
 			d->write_number--;
@@ -429,9 +478,12 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		else
 		{
 			d->read_number--;
-
 		}
+        
+        // Wake up the wait queue
 		wake_up_all(&d->blockq);
+
+        // End critical section
 		osp_spin_unlock(&d->mutex);
 		
 		r = 0;
