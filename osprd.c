@@ -44,7 +44,7 @@ MODULE_AUTHOR("Fahad Nathani and Robert Nguyen");
 static int nsectors = 32;
 module_param(nsectors, int, 0);
 
-#define MAX_MEM_SIZE 128
+#define MAX_MEMORY_SIZE 128
 
 /* The internal representation of our device. */
 typedef struct osprd_info {
@@ -53,7 +53,6 @@ typedef struct osprd_info {
 
 	osp_spinlock_t mutex;           // Mutex for synchronizing access to
 					// this block device
-
 
 	int reader;
 	unsigned ticket_head;		// Currently running ticket for
@@ -68,10 +67,10 @@ typedef struct osprd_info {
 	/* HINT: You may want to add additional fields to help
 	         in detecting deadlock. */
 
-	pid_t pid_queue[MAX_MEM_SIZE];
+	pid_t pid_queue[MAX_MEMORY_SIZE]; //store pid of incoming requests in a queue
 	
-	unsigned read_number;
-	unsigned write_number;
+	unsigned read_number;  //a running count of the process that is reading the file
+	unsigned write_number;	// a running count of the process that is writing the file
 	
 	// The following elements are used internally; you don't need
 	// to understand them.
@@ -294,12 +293,12 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		current_ticket = d->ticket_head++;
 		osp_spin_unlock(&d->mutex);
 
-		d->pid_queue[current_ticket%MAX_MEM_SIZE] = current->pid;
+		d->pid_queue[current_ticket%MAX_MEMORY_SIZE] = current->pid;
 
-
+		//self-deadlock check
 		osp_spin_lock(&d->mutex);
 		int rw_number = d->read_number+d->write_number;
-		int index = (d->ticket_tail-1)%MAX_MEM_SIZE;
+		int index = (d->ticket_tail-1)%MAX_MEMORY_SIZE;
 		osp_spin_unlock(&d->mutex);
 
 		while(rw_number > 0)
@@ -308,7 +307,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 				return -EDEADLK;
 			index--;
 			if(index<0)
-				index = MAX_MEM_SIZE -1;
+				index = MAX_MEMORY_SIZE -1;
 			rw_number--;	
 		}
 
@@ -402,7 +401,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		osp_spin_lock(&d->mutex);
 		int temp = 0;
 		int rw_number = d->read_number + d->write_number;
-		int index = (d->ticket_tail -1)%MAX_MEM_SIZE;
+		int index = (d->ticket_tail -1)%MAX_MEMORY_SIZE;
 		osp_spin_unlock(&d->mutex);
 		while(rw_number >0)
 		{
@@ -413,7 +412,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			}
 			index--;
 			if(index < 0)
-				index = MAX_MEM_SIZE -1;
+				index = MAX_MEMORY_SIZE -1;
 			rw_number--;
 		}
 		

@@ -9,14 +9,16 @@
 # the end of the file.
 
 # Partner 1
-Name: Your Name Here
-Student ID: Your ID Here
-Email: Your Email Here
+Name: Fahad Nathani
+Student ID: 203-940-502
+Email: fahadnathani@gmail.com
 
 # Partner 2
-#Name: Partner's Name Here
-#Student ID: Partner's ID Here
-#Email: Partner's Email Here
+Name: Robert Nguyen
+Student ID: 803-879-361
+Email: roberttn@ucla.edu
 
-testing git Robert
+
 # Add any other information you'd like us to have below this line.
+
+In our design we ensured that if a process did not own a lock, it could not release the lock. Also, our code rejects requests for process wanting to obtain a lock that it already has.
